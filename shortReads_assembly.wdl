@@ -135,11 +135,13 @@ task stage {
            ln -s ~{input_file} ~{target} || cp ~{input_file} ~{target}
        fi
 
+        # threads=2 matches this task's runtime.cpu below
         reformat.sh \
         ~{if (defined(memory)) then "-Xmx" + memory else "-Xmx10G" }\
+        threads=2 \
         in=~{target} \
         out1=~{output1} \
-        out2=~{output2}    
+        out2=~{output2}
        # Capture the start time
        date --iso-8601=seconds > start.txt
 
@@ -329,8 +331,12 @@ task read_mapping_pairs{
 
         samtools index ~{filename_sorted}
 
+        # threads matches jvm_threads used for bbmap.sh above; only matches this
+        # task's runtime.cpu (16) if the workflow's threads input is set to 16 —
+        # otherwise falls back to all cores visible in /proc/cpuinfo, same as bbmap.sh
         reformat.sh \
         ~{if (defined(memory)) then "-Xmx" + memory else "-Xmx105G" } \
+        threads=~{jvm_threads} \
         in=~{filename_unsorted} \
         out=~{filename_outsam} \
         overwrite=true
@@ -371,8 +377,10 @@ task create_agp {
 
     command<<<
         set -euo pipefail
+        # threads=16 matches this task's runtime.cpu below
         fungalrelease.sh \
         ~{if (defined(memory)) then "-Xmx" + memory else "-Xmx105G" } \
+        threads=16 \
         in=~{scaffolds_in} \
         out=~{filename_scaffolds} \
         outc=~{filename_contigs} \
@@ -388,7 +396,7 @@ task create_agp {
             sed -i 's/scaffold/~{rename_contig_prefix}_scf/g' \
             ~{filename_contigs} ~{filename_scaffolds} ~{filename_agp} ~{filename_legend}
         fi
-        bbstats.sh format=8 in=~{filename_scaffolds} out=stats.json
+        bbstats.sh format=8 threads=16 in=~{filename_scaffolds} out=stats.json
         sed -i 's/l_gt50k/l_gt50K/g' stats.json
 
     >>>
@@ -487,8 +495,10 @@ task bbcms {
              export bbcms_input="infile.fastq"
         fi
 
+        # threads=16 matches this task's runtime.cpu below
         bbcms.sh \
         ~{if (defined(memory)) then "-Xmx" + memory else "-Xmx105G" } \
+        threads=16 \
         metadatafile=~{filename_counts} \
         mincount=2 \
         highcountfraction=0.6 \
@@ -499,15 +509,17 @@ task bbcms {
         && grep Unique ~{filename_errlog} \
         | rev |  cut -f 1 | rev  \
         > ~{filename_kmerfile}
-        
+
         if ~{paired}; then
             reformat.sh \
             ~{if (defined(memory)) then "-Xmx" + memory else "-Xmx105G" } \
+            threads=16 \
             in=~{filename_outfile} \
             out1=~{filename_outfile1} \
             out2=~{filename_outfile2}
         fi
 
+        # doesn't accept threads
         readlength.sh \
         ~{if (defined(memory)) then "-Xmx" + memory else "-Xmx105G" } \
         in=~{filename_outfile} \

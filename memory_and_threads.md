@@ -47,9 +47,9 @@ risk: on a shared/multi-core node, `jvm_threads` can end up far higher than the 
 CPUs Cromwell/Shifter scheduled for it, oversubscribing the node via `bbmap.sh
 threads=` and `samtools sort -@`.
 
-**This risk is not unique to `read_mapping_pairs`.** Every BBTools call in the
+**This risk is not unique to `read_mapping_pairs`.** Every BBTools call but one in the
 short-read path — `bbcms.sh`, `reformat.sh` (all three instances, in `stage`,
-`bbcms`, and `read_mapping_pairs`), `readlength.sh`, `fungalrelease.sh`, and
+`bbcms`, and `read_mapping_pairs`), `fungalrelease.sh`, and
 `bbstats.sh` — has no `threads=` flag passed at all, since none of those tasks
 (`stage`, `bbcms`, `create_agp`) even expose a `threads` parameter to set one. Left
 unset, BBTools' own default (`threads=auto`) applies, which resolves to

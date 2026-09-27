@@ -13,33 +13,40 @@ calls `jq`/`python3`/`sed`/`samtools` only — no BBTools binaries, not listed b
 but never actually calls a BBTools binary (uses `paste`/`gunzip`/`tr`) — also not
 listed below.
 
+**Update:** most calls below now pass an explicit `threads=` matching its task's
+`runtime.cpu`. Previously, only `bbmap.sh` did; most others fell back to
+BBTools' own default (`threads=auto`, i.e. all cores visible to the JVM), which was
+a real oversubscription risk on shared NERSC/Shifter nodes — see
+`memory_and_threads.md`. Line numbers below reflect the file after that fix.
+
 | BBTools call | Enclosing task | Threads setting | Memory setting | WDL file | Line |
 |---|---|---|---|---|---|
-| `bbcms.sh` | `bbcms` | none passed — BBTools default (`threads=auto`) | `-Xmx~{memory}` if `memory` defined, else `-Xmx105G` | `shortReads_assembly.wdl` | 490 |
-| `reformat.sh` | `bbcms` | none passed — BBTools default (`threads=auto`) | `-Xmx~{memory}` if `memory` defined, else `-Xmx105G` | `shortReads_assembly.wdl` | 504 |
-| `readlength.sh` | `bbcms` | none passed — BBTools default (`threads=auto`) | `-Xmx~{memory}` if `memory` defined, else `-Xmx105G` | `shortReads_assembly.wdl` | 511 |
-| `reformat.sh` | `stage` | none passed — BBTools default (`threads=auto`) | task-local `String memory = "4G"` (not a workflow input) → always `-Xmx4G` | `shortReads_assembly.wdl` | 138 |
-| `bbmap.sh` | `read_mapping_pairs` | `threads=~{jvm_threads}`, where `jvm_threads = select_first([threads, system_cpu])` and `system_cpu` = core count from `/proc/cpuinfo` | `-Xmx~{memory}` if `memory` defined, else `-Xmx105G` | `shortReads_assembly.wdl` | 311 |
-| `reformat.sh` | `read_mapping_pairs` | none passed — BBTools default (`threads=auto`) | `-Xmx~{memory}` if `memory` defined, else `-Xmx105G` | `shortReads_assembly.wdl` | 332 |
-| `fungalrelease.sh` | `create_agp` | none passed — BBTools default (`threads=auto`) | `-Xmx~{memory}` if `memory` defined, else `-Xmx105G` | `shortReads_assembly.wdl` | 374 |
-| `bbstats.sh` | `create_agp` | none passed — BBTools default (`threads=auto`) | none passed at all (no `-Xmx` flag) | `shortReads_assembly.wdl` | 391 |
+| `bbcms.sh` | `bbcms` | `threads=16` (hardcoded, matches `runtime.cpu: 16`) | `-Xmx~{memory}` if `memory` defined, else `-Xmx105G` | `shortReads_assembly.wdl` | 499 |
+| `reformat.sh` | `bbcms` | `threads=16` (hardcoded, matches `runtime.cpu: 16`) | `-Xmx~{memory}` if `memory` defined, else `-Xmx105G` | `shortReads_assembly.wdl` | 514 |
+| `readlength.sh` | `bbcms` | no `threads=` flag — this CLI does not accept one | `-Xmx~{memory}` if `memory` defined, else `-Xmx105G` | `shortReads_assembly.wdl` | 522 |
+| `reformat.sh` | `stage` | `threads=2` (hardcoded, matches `runtime.cpu: 2`) | task-local `String memory = "4G"` (not a workflow input) → always `-Xmx4G` | `shortReads_assembly.wdl` | 141 |
+| `bbmap.sh` | `read_mapping_pairs` | `threads=~{jvm_threads}`, where `jvm_threads = select_first([threads, system_cpu])` and `system_cpu` = core count from `/proc/cpuinfo` | `-Xmx~{memory}` if `memory` defined, else `-Xmx105G` | `shortReads_assembly.wdl` | 315 |
+| `reformat.sh` | `read_mapping_pairs` | `threads=~{jvm_threads}` (matches `bbmap.sh` above and `runtime.cpu: 16`) | `-Xmx~{memory}` if `memory` defined, else `-Xmx105G` | `shortReads_assembly.wdl` | 339 |
+| `fungalrelease.sh` | `create_agp` | `threads=16` (hardcoded, matches `runtime.cpu: 16`) | `-Xmx~{memory}` if `memory` defined, else `-Xmx105G` | `shortReads_assembly.wdl` | 383 |
+| `bbstats.sh` | `create_agp` | `threads=16` (hardcoded, matches `runtime.cpu: 16`) | none passed at all (no `-Xmx` flag) | `shortReads_assembly.wdl` | 399 |
 
 ## Notes
 
-- `bbmap.sh` in `read_mapping_pairs` is the **only** BBTools call in the short-read
-  path that receives an explicit `threads=` value from the workflow's `threads`
-  input — see `memory_and_threads.md` for the oversubscription risk when `threads` is
-  left unset.
-- Every other BBTools call — `bbcms.sh`, `reformat.sh` (both instances),
-  `readlength.sh`, `fungalrelease.sh`, `bbstats.sh` — has no `threads=` flag at all
-  and falls back to whatever BBTools' own default thread count resolves to in the
-  container (BBTools documents this default as `threads=auto`, i.e. "use all
-  detected cores"; whether the JVM sees the container's actual cpuset limit or the
-  full host core count is an environment question we haven't independently
-  verified for this Shifter setup).
-- `bbstats.sh` (line 391) is the only call in this table with **no** memory flag
-  passed at all — not even the `-Xmx105G` default the other calls fall back to.
-- All eight calls run inside tasks with hardcoded `runtime.memory`/`runtime.cpu`
-  (`120 GiB`/`16` cpu in `bbcms`, `read_mapping_pairs`, `create_agp`; `4 GiB`/`2`
-  cpu in `stage`) — see `memory_and_threads.md` for why the `-Xmx` values above
-  rarely matter given those hardcoded ceilings.
+- `bbmap.sh` and the second `reformat.sh` in `read_mapping_pairs` share
+  `jvm_threads`, which already resolves to `threads` (the workflow input) or the
+  `/proc/cpuinfo` core count if unset — see `memory_and_threads.md` for why setting
+  the workflow's `threads` input to `16` still matters here despite this fix.
+- The other six calls (`bbcms`, `stage`, `create_agp` tasks) now use a hardcoded
+  `threads=` literal rather than a workflow input, since none of those tasks
+  exposed a `threads` parameter and the fix was scoped to matching each task's
+  fixed `runtime.cpu` rather than threading a new input through.
+- `bbstats.sh` (line 397) is still the only call in this table with **no** memory
+  flag passed at all — not even the `-Xmx105G` default the other calls fall back
+  to. Not addressed by this fix; `bbstats.sh` is a lightweight single-pass stats
+  computation, so this is lower-priority than the threads gap was.
+- All eight calls still run inside tasks with hardcoded `runtime.memory`/
+  `runtime.cpu` (`120 GiB`/`16` cpu in `bbcms`, `read_mapping_pairs`, `create_agp`;
+  `4 GiB`/`2` cpu in `stage`) — see `memory_and_threads.md` for why the `-Xmx`
+  values above rarely matter given those hardcoded ceilings. This fix only
+  addresses thread counts, not the oversized/copied-boilerplate memory requests
+  (e.g. `create_agp`'s `120 GiB` for comparatively light work).
