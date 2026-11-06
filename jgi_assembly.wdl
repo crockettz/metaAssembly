@@ -94,8 +94,6 @@ workflow jgi_metaAssembly {
         File? sr_contig=jgi_metaASM.contig
         File? sr_scaffold=jgi_metaASM.scaffold
         File? sr_agp=jgi_metaASM.agp
-        File? sr_bam=jgi_metaASM.bam
-        File? sr_samgz=jgi_metaASM.samgz
         File? sr_covstats=jgi_metaASM.covstats
         File? sr_asminfo=jgi_metaASM.asminfo
         File? sr_bbcms_fq = jgi_metaASM.bbcms_fastq

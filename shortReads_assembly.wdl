@@ -90,8 +90,6 @@ workflow jgi_metaASM {
             fasta=create_agp.outcontigs,
             scaffold=create_agp.outscaffolds,
             agp=create_agp.outagp,
-            bam=read_mapping_pairs.outbamfile,
-            samgz=read_mapping_pairs.outsamfile,
             covstats=read_mapping_pairs.outcovfile,
             asmstats=create_agp.outstats,
             bbcms_fastq = bbcms.out
@@ -101,8 +99,6 @@ workflow jgi_metaASM {
         File contig=finish_asm.outcontigs
         File scaffold=finish_asm.outscaffolds
         File agp=finish_asm.outagp
-        File bam=finish_asm.outbam
-        File samgz=finish_asm.outsamgz
         File covstats=finish_asm.outcovstats
         File asmstats=finish_asm.outasmstats
         File asminfo=make_info_file.asminfo
@@ -196,8 +192,6 @@ task finish_asm {
     File fasta
     File scaffold
     File? agp
-    File bam
-    File? samgz
     File? covstats
     File asmstats
     File bbcms_fastq
@@ -218,14 +212,6 @@ task finish_asm {
         cat ~{covstats} | sed ~{sed} > ~{prefix}_covstats.txt
         cat ~{agp} | sed ~{sed} > ~{prefix}_assembly.agp
         ln ~{bbcms_fastq} ~{prefix}_bbcms.fastq.gz || ln -s ~{bbcms_fastq} ~{prefix}_bbcms.fastq.gz
-
-        ## Bam file     
-        samtools view -h ~{bam} | sed ~{sed} | \
-          samtools view -hb -o ~{prefix}_pairedMapped_sorted.bam
-
-        ## Sam.gz file
-        samtools view -h ~{samgz} | sed ~{sed} | \
-          gzip -c - > ~{prefix}_pairedMapped.sam.gz
 
         ## Remove an extra field from the stats and normalize keys
         cat ~{asmstats} | jq 'del(.filename)' > stats.json.tmp
@@ -264,8 +250,6 @@ EOF
         File outcontigs = "~{prefix}_contigs.fna"
         File outscaffolds = "~{prefix}_scaffolds.fna"
         File outagp = "~{prefix}_assembly.agp"
-        File outbam = "~{prefix}_pairedMapped_sorted.bam"
-        File outsamgz = "~{prefix}_pairedMapped.sam.gz"
         File outcovstats = "~{prefix}_covstats.txt"
         File outasmstats = "stats.json"
         File outbbcms = "~{prefix}_bbcms.fastq.gz"
@@ -289,11 +273,6 @@ task read_mapping_pairs{
     Boolean paired = true
     String bbmap_interleaved_flag = if paired then 'interleaved=true' else 'interleaved=false'
 
-    String filename_unsorted="pairedMapped.bam"
-    String filename_outsam="pairedMapped.sam.gz"
-    String filename_sorted="pairedMapped_sorted.bam"
-    String filename_sorted_idx="pairedMapped_sorted.bam.bai"
-    String filename_bamscript="to_bam.sh"
     String filename_cov="covstats.txt"
     String system_cpu="$(grep \"model name\" /proc/cpuinfo | wc -l)"
     String jvm_threads=select_first([threads,system_cpu])
@@ -310,6 +289,7 @@ task read_mapping_pairs{
              export mapping_input="infile.fastq"
         fi
 
+        # Coverage stats only: no out=, so no BAM/SAM alignment files are written.
         bbmap.sh \
         ~{if (defined(memory)) then "-Xmx" + memory else "-Xmx105G" } \
         threads=~{jvm_threads} \
@@ -318,28 +298,7 @@ task read_mapping_pairs{
         ambiguous=random \
         in=$mapping_input \
         ref=~{ref} \
-        out=~{filename_unsorted} \
-        covstats=~{filename_cov} \
-        bamscript=~{filename_bamscript}
-
-        samtools sort \
-        -m100M \
-        -@ \
-        ~{jvm_threads} \
-        ~{filename_unsorted} \
-        -o ~{filename_sorted}
-
-        samtools index ~{filename_sorted}
-
-        # threads matches jvm_threads used for bbmap.sh above; only matches this
-        # task's runtime.cpu (16) if the workflow's threads input is set to 16 —
-        # otherwise falls back to all cores visible in /proc/cpuinfo, same as bbmap.sh
-        reformat.sh \
-        ~{if (defined(memory)) then "-Xmx" + memory else "-Xmx105G" } \
-        threads=~{jvm_threads} \
-        in=~{filename_unsorted} \
-        out=~{filename_outsam} \
-        overwrite=true
+        covstats=~{filename_cov}
 
         ln -s ~{filename_cov} mapping_stats.txt
         rm $mapping_input
@@ -347,10 +306,7 @@ task read_mapping_pairs{
     >>>
 
     output {
-        File outbamfile = filename_sorted
-        File outbamfileidx = filename_sorted_idx
         File outcovfile = filename_cov
-        File outsamfile = filename_outsam
     }
 
     runtime {
